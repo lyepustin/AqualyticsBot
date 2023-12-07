@@ -22,3 +22,4 @@ six==1.16.0
 SoundCard==0.4.2
 soundfile==0.11.0
 typing_extensions==4.4.0
+ultralytics

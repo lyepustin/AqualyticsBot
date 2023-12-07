@@ -15,7 +15,7 @@ from PIL import ImageEnhance
 
 import pytesseract
 import re
-
+import os
 
 SPEAKER_ID = None  # speaker to listen to for fish sound
 SOUND_THRESH = 0.002  # sound threshold for catching fish.
@@ -203,5 +203,88 @@ def modify_image():
         save_img(f"test_image.png", image)
 
 
+def find_element_coordinates():
+    class ElementDetector:
+        def __init__(self, screenshot, template, threshold):
+            self.screenshot = screenshot
+            self.template = template
+            self.threshold = threshold
 
-modify_image()
+        def detect_coordinates(self):
+            img_rgb = cv2.imread(self.screenshot)
+            # img_screenshot_gray = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2GRAY)
+            img_screenshot_gray = cv2.imread(self.screenshot, 0)
+
+            img_template = cv2.imread(self.template)
+            # img_template_gray = cv2.cvtColor(img_template, cv2.COLOR_BGR2GRAY)
+            img_template_gray = cv2.imread(self.template, 0)
+
+
+            # Perform Canny edge detection with L2gradient=True
+            template_edges = cv2.Canny(img_template_gray, 50, 150, L2gradient=True)
+            img_edges = cv2.Canny(img_screenshot_gray, 50, 150, L2gradient=True)
+
+            # Normalized Cross Correlation with edge images
+            result = cv2.matchTemplate(img_edges, template_edges, cv2.TM_CCOEFF_NORMED)
+            
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+            threshold = 0.20
+            if max_val > threshold:
+                screen_name = str(self.screenshot).replace("tests\\", "")
+                template_name = str(self.template).replace("bobber\\", "")
+                print(f"Element found at coordinates: {max_loc} at {screen_name}_{template_name}.png")
+
+                # Get the coordinates of the top-left corner of the matched area
+                top_left = max_loc
+
+                # Get the dimensions of the template
+                h, w = img_template_gray.shape
+
+                # Draw a rectangle around the matched area
+                bottom_right = (top_left[0] + w, top_left[1] + h)
+                cv2.rectangle(img_edges, top_left, bottom_right, 255, 2)
+
+                # Create a copy of the original image to overlay the template edges in red
+                img_with_template = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2RGB)
+                img_with_template[top_left[1]:bottom_right[1], top_left[0]:bottom_right[0]] = [0, 0, 255]
+
+                screen_name = str(self.screenshot).replace( "tests\\", "")
+                template_name = str(self.template).replace("bobber\\", "")
+                cv2.imwrite(os.path.join(Path(r"output"), f"{screen_name}_{template_name}.png"), img_with_template)
+
+                print(max_val)
+            # if max_val > self.threshold:
+            #     height, width = cv2.imread(template_path, 0).shape
+            #     coordinates = (max_loc[0], max_loc[1], max_loc[0] + width, max_loc[1] + height)
+                
+            #     # Draw a red circle around the detected coordinates
+            #     cv2.circle(img_rgb, (int((coordinates[0] + coordinates[2]) / 2), int((coordinates[1] + coordinates[3]) / 2)),
+            #                20, (0, 0, 255), 2)  # Adjust the radius (20) and thickness (2) as needed
+
+            #     # Save the new image with the red circle
+                
+            #     screen_name = str(self.screenshot).replace("tests\\", "")
+            #     template_name = str(self.template).replace("bobber\\", "")
+            #     print(os.path.join(Path(r"output"), f"{screen_name}_{template_name}.png"))
+            #     cv2.imwrite(os.path.join(Path(r"output"), f"{screen_name}_{template_name}.png"), img_rgb)
+                
+            #     print(f"Element found at coordinates: {coordinates} at {template_path} for {screen_file}")
+            #     return True
+            
+            # return False
+
+    threshold = 0.8
+    template_folder = Path(r"bobber")
+    for screen_file in os.listdir(Path(r"tests")):
+        if screen_file.endswith(".png"):
+            for template_file in os.listdir(template_folder):
+                if template_file.endswith(".png"):
+                    template_path = os.path.join(template_folder, template_file)
+                    detector = ElementDetector(os.path.join(Path(r"tests"), screen_file), template_path, threshold)
+                    if detector.detect_coordinates():
+                        break
+            sys.exit()
+                        
+
+if __name__ == "__main__":
+    find_element_coordinates()
