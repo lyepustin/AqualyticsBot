@@ -2,6 +2,8 @@ from . import config
 import pyautogui
 import numpy as np
 import PIL.ImageOps
+from PIL import ImageGrab
+from PIL import Image
 from numpy.random import uniform
 from time import sleep, time
 import soundcard as sc
@@ -9,14 +11,20 @@ import soundfile as sf
 import matplotlib.pyplot as plt
 import cv2
 import sys
+import os
  
-window = pyautogui.getWindowsWithTitle("World of Warcraft")[0] 
-pix_x = window.width
-pix_y = window.height
-w = window.width // 5.5
-h = window.height // 4.5
-x = int((window.width // 2) - (w // 2))
-y = int((window.height // 2) - (1.2 * h))
+import pyaudio
+import numpy as np
+import sys
+
+width = 2560
+height = 1600
+width = 1279
+height = 799
+w = width // 5.5
+h = height // 4.5
+x = int((width // 2) - (w // 2))
+y = int((height // 2) - (1.2 * h))
 
 
 def hold_key(keybind, seconds=1.00):
@@ -35,37 +43,30 @@ def get_sound(i):
     Get speaker sound (defined in config.SPEAKER_ID) and use a significant sound (volume0 as inference that a fish has
     been caught, according to config.SOUND_THRESH
     """
-    speaker_id = sc.default_speaker().name if config.SPEAKER_ID is None else config.SPEAKER_ID
+
     try:
-        with sc.get_microphone(id=speaker_id, include_loopback=True).recorder(
-                samplerate=config.SAMPLE_RATE) as mic:
-            # record audio with loopback from default speaker.
-            data = mic.record(numframes=int(config.SAMPLE_RATE * config.HALF_SEC))
-    except IndexError:
-        print(f"Couldn't find speaker device '{speaker_id}'. Available options are:")
-        for speaker in sc.all_speakers():
-            print(speaker.name)
-        print("Set 'config.SPEAKER_ID' to one of the speakers listed above")
-        sys.exit(1)
+        p = pyaudio.PyAudio()
+        stream = p.open(format=p.get_format_from_width(2),
+                        channels=1 if sys.platform == 'darwin' else 2,
+                        rate=config.SAMPLE_RATE,
+                        input=True,
+                        output=True,
+                        frames_per_buffer=config.CHUNK)
 
-    # infer volume from record
-    mean = sum(np.absolute(data)) / len(data)
-    mean = mean[0]
-    caught_fish = True if mean > config.SOUND_THRESH else False
-    print(f"{i} catch = {caught_fish}: fish volume = {mean:9.5f}, speaker = '{speaker_id}'")
+        # Record audio from the speaker
+        data = np.frombuffer(stream.read(int(config.SAMPLE_RATE * config.HALF_SEC)), dtype=np.int16)
 
-    # # plot for show/debug
-    # plt.figure(figsize=(5, 1))
-    # plt.plot(data)
-    # plt.ylim(-0.12, 0.12)
-    # plt.title(f"Last {config.SEC} second(s) of audio", size=7)
-    # plt.savefig(config.OUTPUT_FOLDER / f"audio_signal_{i}.png", bbox_inches='tight')
-    # plt.savefig(config.OUTPUT_FOLDER / f"audio_signal.png", bbox_inches='tight')
-    # plt.close()
+        # Close the stream
+        stream.stop_stream()
+        stream.close()
 
-    # filename = config.OUTPUT_FOLDER / f"sound_{i}.wav"
-    # # change "data=data[:, 0]" to "data=data", if you would like to write audio as multiple-channels.
-    # sf.write(file=filename, data=data[:, 0], samplerate=config.SAMPLE_RATE)
+    finally:
+        p.terminate()
+
+    # Infer volume from record
+    mean = np.mean(np.abs(data))
+    caught_fish = mean > config.SOUND_THRESH
+    print(f"{i} catch = {caught_fish}: fish volume = {mean:9.5f}, speaker = 'MAC'")
 
     return caught_fish
 
@@ -84,7 +85,21 @@ def move_cursor_to_bait():
     """
     Move mouse cursor to fish bait using screenshot and coordinates
     """
+    width = 1279
+    height = 799
+    w = width // 5.5
+    h = height // 4.5
+    x = int((width // 2) - (w // 2))
+    y = int((height // 2) - (1.2 * h))
+    print(f"box x size={x}")
+    print(f"box y size={y}")
+
+    x1, y1 = pyautogui.position()
+    # Print the coordinates
+    print(f"Mouse Position: X={x1}, Y={y1}")
     img, coords = get_fishing_zone_and_bait_coords()
+    print(f"get_fishing_zone_and_bait_coords: X,Y={coords}")
+
     mouse_x = x + coords[0]
     mouse_y = y + coords[1]
     print(f"Moving cursor to bait @ {mouse_x, mouse_y} ...")
@@ -101,6 +116,8 @@ def get_fishing_zone_and_bait_coords():
     image with the most brightness
     """
     img = pyautogui.screenshot(region=(x, y, w, h + (y // 7)))
+    save_img(f"screenshot.png", img)
+
     img = np.array(img)
     img_raw = img.copy()
 
@@ -139,51 +156,26 @@ def wait():
     sleep(wait_time)
 
 
-def logout():
-    """
-    Log character out of game into character selection screen
-    """
-    print("Logging out")
-    hold_key("Esc", 1.0)
-    hold_key("Esc", 1.0)
-    hold_key("Enter", 1.0)
-    pyautogui.write(r'/logout', interval=uniform(0.03, 0.2))
-    hold_key("Enter", 1.0)
-
-
-def login():
-    """
-    Login to game
-    """
-    print("Logging in from character selection screen")
-    hold_key("Enter", 1.0)
-
-
-def setup():
-    """
-    Create output folder for debugging
-    Ensure correct window is active before fishing
-    """
-    print(f"Creating folder '{config.OUTPUT_FOLDER}' (check images here to see fish zone for debugging)")
-    if not config.OUTPUT_FOLDER.exists():
-        config.OUTPUT_FOLDER.mkdir()
-
-    # Countdown timer
-    window = pyautogui.getWindowsWithTitle("World of Warcraft")[0]
-    while not window.isActive:
-        print("Please click on WoW window")
-        print("", end="", flush=True)
-        sleep(2)
-    print("*" * 100)
-    print("Starting to fish...")
-
-
 def fish(hours: float = 3.0 / 6):
     """
     Main wrapper function to fish.
     :param hours: number of hours (can be decimal) to run the program for. Defaults to 30 minutes.
     """
-    setup()
+    # import pyautogui
+    # import time
+
+    # while True:
+    #     # Get the current mouse position
+    #     x, y = pyautogui.position()
+
+    #     # Print the coordinates
+    #     print(f"Mouse Position: X={x}, Y={y}")
+
+    #     # Wait for 1 second
+    #     time.sleep(1)
+
+    # setup()
+    sleep(3)
     start_time = time()  # remember when we started
     seconds_to_run = hours * 60 * 60
     mins_to_run = seconds_to_run / 60
